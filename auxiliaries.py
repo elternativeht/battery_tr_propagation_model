@@ -98,6 +98,9 @@ def radvf_calc_2pal(dimension_1: tuple[float],
     return F12
 
 class CellModule(object):
+    '''
+    The class with battery module geometric information.
+    '''
     global ADJACENT_DICT
     def __init__(self, cell_dim: tuple[float], cell_dist: tuple[float]):
         self.cell_length, self.cell_width, self.cell_height = cell_dim
@@ -109,7 +112,13 @@ class CellModule(object):
         self.failed_list = []
         self.unfailed_list = list(range(14))
 
+        self.emissivity = np.ones(15)
+        self.emissivity[14] = 0.8
+        self.absorptivity =  self.emissivity.copy()
+
         self.rad_matrix = np.zeros((15,15))
+
+        self.cond_matrix = np.zeros((15, 15))
 
         vf_row = radvf_calc_2pal(dimension_1=(self.cell_length,self.cell_height),
                                  dimension_2=(self.cell_length,self.cell_height),
@@ -127,6 +136,9 @@ class CellModule(object):
                     + self.cell_length * self.cell_height * (2 - test_id * vf_row)
                     + self.cell_width * self.cell_height * (2 - vf_col - test_id * vf_diag)
                     ) * (4 + (test_id - 1) * 6)
+
+        self.radiation_area = np.ones(15) * self.cell_total_area
+        self.radiation_area[14] = self.air_area
 
         self.vf_list = [vf_row, vf_col, vf_diag]
 
@@ -154,8 +166,19 @@ class CellModule(object):
         
         for neighboring_cell_id in ADJACENT_DICT[failing_cell_id]['row']:
             total_delta = 0.0
-            cur_z_dist = self.width_gap if neighboring_cell_id in self.unfailed_list else self.width_gap/2
-            new_z_dist = self.width_gap/2 if neighboring_cell_id in self.unfailed_list else 0.001
+            if neighboring_cell_id in self.unfailed_list:
+                cur_z_dist = self.width_gap  
+                new_z_dist = self.width_gap/2
+                self.cond_matrix[failing_cell_id][failing_cell_id] -= 1./new_z_dist
+                self.cond_matrix[neighboring_cell_id][neighboring_cell_id] -= 1./new_z_dist
+            else:
+                cur_z_dist = self.width_gap/2
+                new_z_dist = 0.001
+                self.cond_matrix[failing_cell_id][failing_cell_id] -= (1./new_z_dist - 1./cur_z_dist)
+                self.cond_matrix[neighboring_cell_id][neighboring_cell_id] -= (1./new_z_dist - 1./cur_z_dist)
+            self.cond_matrix[failing_cell_id][neighboring_cell_id] = 1./new_z_dist
+            self.cond_matrix[neighboring_cell_id][failing_cell_id] = 1./new_z_dist
+
             cur_vf_row =  radvf_calc_2pal(dimension_1=(self.cell_length,self.cell_height),
                                 dimension_2=(self.cell_length,self.cell_height),
                                 z_dist=cur_z_dist, dimension_dist=(0,0))
@@ -169,15 +192,11 @@ class CellModule(object):
             self.rad_matrix[failing_cell_id][neighboring_cell_id] += cur_delta
             self.rad_matrix[neighboring_cell_id][failing_cell_id] += cur_delta
             self.rad_matrix[neighboring_cell_id][14] -= cur_delta
+
+
             
         self.rad_matrix[failing_cell_id][14] -= total_delta
 
-# test_result = radvf_calc_2parallel_rect(dimension_1 = (0.08,0.12), 
-#                                        dimension_2 = (0.08,0.12),
-#                                        z_dist = 0.12,
-#                                        dimension_dist=(0.22,0)
-#                                       )
-# print(test_result)
 
 def radiation_matrix_calc(cell_dimension: tuple[float], cell_gap: tuple[float]):
     cell_length, cell_width, cell_height = cell_dimension
@@ -249,16 +268,15 @@ def radiation_matrix_calc(cell_dimension: tuple[float], cell_gap: tuple[float]):
 
 def mock_unittest():
     test_module = CellModule(cell_dim=(0.173,0.045,0.125),cell_dist=(0.08,0.03))
-    print(test_module.rad_matrix)
+    print(test_module.cond_matrix)
     print('------')
     test_module.update_module(failing_cell_id=0)
-    print(test_module.rad_matrix)
+    print(test_module.cond_matrix)
     print('------')
     test_module.update_module(failing_cell_id=1)
-    print(test_module.rad_matrix)
+    print(test_module.cond_matrix)
     print('------')
     test_module.update_module(failing_cell_id=2)
-    print(test_module.rad_matrix)
+    print(test_module.cond_matrix)
 def mock_unittest_air():
     test_module = CellModule(cell_dim=(0.173,0.045,0.125),cell_dist=(0.08,0.03))
-mock_unittest_air()

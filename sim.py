@@ -1,215 +1,228 @@
+'''
+Simulation script file of battery module failure (thermal runaway) propagation.
+'''
 
-from dataclasses import dataclass,field
-import view_factor
 import numpy as np
 import numpy.ma as ma
 from scipy.integrate import solve_ivp
+from auxiliaries import CellModule
 
 # All units are in SI-MKG unless explicitly stated; temperature unit is Kelvin
-
 
 # Constants:
 
 SIGMA = 5.67e-8
-T_IGN = 180.0 + 273.15
+R_UNIVERSAL = 8.314
+MOLECULAR_WEIGHT_AIR = 29e-3
+ABSOLUTE_ZERO_K = 273.15
+
+T_IGN = 180.0 + ABSOLUTE_ZERO_K
 
 # Setup Constants:
+CELL_LENGTH = 0.173
+CELL_WIDTH = 0.045
+CELL_HEIGHT = 0.125
 
-CELL_LENGTH = 0.2 # meters
-CELL_WIDTH = 0.05 # meters
-CELL_HEIGHT = 0.15 # meters
+CELL_MEAN_SPECIFIC_HEAT = 1100.0 # J __kg __K
 
-CELL_SURFACE_AREA = CELL_LENGTH * CELL_WIDTH + CELL_LENGTH*CELL_HEIGHT*2 + CELL_WIDTH*CELL_HEIGHT*2
+CELL_WIDTH_GAP = 0.03
+CELL_WIDTHWISE_CENTER_DIST = CELL_WIDTH_GAP + CELL_WIDTH
 
-AIR_AREA = 5678e-4
+CELL_LENGTH_CAP = 0.04
+CELL_LENGTHWISE_CENTER_DIST = CELL_LENGTH_CAP + CELL_LENGTH
 
-CELL_MEAN_SPECIFIC_HEAT = 1000.0 # J __kg __K
-
-CELL_WIDTHWISE_CENTER_DIST = 0.07 # meters
-CELL_WIDTH_GAP = CELL_WIDTHWISE_CENTER_DIST - CELL_WIDTH
-CELL_LENGTHWISE_CENTER_DIST = 0.3 # meters
-CELL_LENGTH_CAP = CELL_LENGTHWISE_CENTER_DIST - CELL_LENGTH
-
-CELL_TO_CEILING_DIST = 0.2 # meters
-
-RADIATION_CONST = [0.2824, 0.0318, 0.0070]
-
-RAD_PERCENTAGE_MATRIX = np.zeros((15,15))
-for i in range(15):
-    if i+1 not in [1,7,8,14,15]:
-        RAD_PERCENTAGE_MATRIX[i][i-1] = RAD_PERCENTAGE_MATRIX[i][i+1] = RADIATION_CONST[0]
-        if i>=7:
-            RAD_PERCENTAGE_MATRIX[i][i-7]  = RADIATION_CONST[1]
-            RAD_PERCENTAGE_MATRIX[i][i-8]  = RAD_PERCENTAGE_MATRIX[i][i-6] = RADIATION_CONST[2]
-        else:
-            RAD_PERCENTAGE_MATRIX[i][i+7]  = RADIATION_CONST[1]
-            RAD_PERCENTAGE_MATRIX[i][i+8]  = RAD_PERCENTAGE_MATRIX[i][i+6] = RADIATION_CONST[2]
-        RAD_PERCENTAGE_MATRIX[i][14] = 1.0 - RADIATION_CONST[0]*2 - RADIATION_CONST[1] - RADIATION_CONST[2]*2
-    else:
-        if i == 0:
-            RAD_PERCENTAGE_MATRIX[i] = [0.0000, 0.2824, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0318, 0.0070, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.6788]
-        elif i == 6:
-            RAD_PERCENTAGE_MATRIX[i] = [0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2824, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0070, 0.0318, 0.6788]
-        elif i == 7:
-            RAD_PERCENTAGE_MATRIX[i] = [0.0318, 0.0070, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2824, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.6788]
-        elif i == 13:
-            RAD_PERCENTAGE_MATRIX[i] = [0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0070, 0.0318, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0070, 0.2824, 0.6788]
-        else:
-            RAD_PERCENTAGE_MATRIX[i] = np.ones(15) * 1/14.0
-            RAD_PERCENTAGE_MATRIX[i][-1] = 0.0
+BASE_TO_CEILING_DIST = 0.35
 
 # Initial values
-
-cell_init_temp = 300.0 # Kelvin
-cell_init_mass = 2.5 # kg 
-cell_terminal_temp = 420.0
+CELL_INIT_TEMP = 300.0 # Kelvin
+CELL_INIT_MASS = 2.01 # kg 
 # external heat sources
+HEATING_PWR = 500.0 # Watts
 
-heating_pad_power = 500.0 # Watts
+H_CONV_HT_COEFF = np.ones(15) * 10 # dummy values
 
-@dataclass
-class BatteryCell:
-    '''class that contains the battery cell properties'''
-    #coordinates
-    row_index: int
-    col_index: int
+AIR_THERMAL_CONDUCTIVITY_TEMP, AIR_THERMAL_CONDUCTIVITY_K = np.genfromtxt('air_conductivity.csv',
+                                                         delimiter=',',skip_header=1,unpack=True)
+AIR_THERMAL_CONDUCTIVITY_TEMP += ABSOLUTE_ZERO_K
+AIR_THERMAL_CONDUCTIVITY_K *= 1e-3
 
-    # geometries
-    length: float
-    width: float
-    height: float
+GAS_VENTING_ELAPSED_TIME, GAS_VENTING_VOL_RATE = np.genfromtxt('gas_venting_rate.csv',
+                                                    delimiter=',',skip_header=1,unpack=True)
+GAS_VENTING_VOL_RATE *= 1e-3
 
-    #thermodynamic properties
-    temperature: float
-    mass: float
-    specific_heat: float
-    emissivity: float
+SPECIFIC_HEAT_CP = 7 / 2 * R_UNIVERSAL / MOLECULAR_WEIGHT_AIR
+SPECIFIC_HEAT_ARRAY = np.ones(15)*CELL_MEAN_SPECIFIC_HEAT
+SPECIFIC_HEAT_ARRAY[14] = 5/2 * R_UNIVERSAL / MOLECULAR_WEIGHT_AIR
 
-    # thermal runaway mass loss
-    total_mass_loss: float
-    mass_loss_rate: float
-    time_dur_mass_loss: float = field(init=False)
+TIME_VENTING = 7.0
 
-init_mass_array = np.ones(15) * cell_init_mass
-init_mass_array[14] = 101325 * 0.16415/287/300.0
-init_temp_array = np.ones(15) * cell_init_temp
-specific_heat_array = np.ones(15)*CELL_MEAN_SPECIFIC_HEAT
-specific_heat_array[14] = 5/2 * 8.314 / 0.029
-specific_heat_p = 7/2*8.314/0.029
-surface_area_array_rad = np.ones(15) * CELL_SURFACE_AREA
-surface_area_array_rad[14] = AIR_AREA
-hm_array = np.ones(15)*10.0 # dummy values
-emissivity_array = np.ones(15) 
-emissivity_array[14] = 0.8
+REACT_RLSE_ENG_J = 1100 * 1000 * CELL_INIT_MASS
+REACT_RLSE_PWR_W = REACT_RLSE_ENG_J / TIME_VENTING
 
-total_gas_release = 1.0
-gas_venting_rate = 0.08
-time_venting = total_gas_release/gas_venting_rate
-exothermic_energy_release = 4000 * 1000
-exothermic_reaction_release_pwr = exothermic_energy_release / time_venting
+def thermal_conductivity(temp_K):
+    '''
+    The function calculating the current thermal conductivity of air, given
+    the current temperature.
 
-def function0(t, Y, vent_time_remaining, init_heating, unfailed_cell_index_list):
-    Yprime = np.zeros(30)
+    The points used for interpolation comes from the Engineering Toolbox website:
+    https://www.engineeringtoolbox.com/air-properties-viscosity-conductivity-heat-capacity-d_1509.html
+    '''
+    return  np.interp(x=temp_K,
+                      xp=AIR_THERMAL_CONDUCTIVITY_TEMP,
+                      fp=AIR_THERMAL_CONDUCTIVITY_K)
+
+def gas_venting_rate(time_s, temp_K):
+    '''
+    The function used to calcualte the mass gas venting rate (and hence the battery 
+    mass loss rate) based on the volumetric gas venting rate data obtained by Erik Archibald.
+
+    Parameters:
+
+   `time_s`: a float showing the elapsed time [s]. It should be between 0 and 7 seconds, but
+    violating the limits will not cause severe calculation errors as interpolation function 
+    will force out-of-bound bound inputs to obtain 0 results.
+
+    `temp_K`: a `np.ndarray[float]` showing the temperature
+
+    Returns:
+
+    cur_mass_rate: `np.ndarray[float]` displaying the mass change rate (absolute)
+
+    '''
+    cur_vol_rate = np.interp(x=time_s, xp=GAS_VENTING_ELAPSED_TIME,fp=GAS_VENTING_VOL_RATE)
+    cur_mass_rate = 101325 * cur_vol_rate / temp_K[:14] / 8.314 * 29e-3
+    return cur_mass_rate
+
+def tr_function(t, y, init_heating: bool, battery_module: CellModule, vent_time_remaining):
+    y_prime = np.zeros(30)
 
     # first 15 variables: the temperature 1 to 15 (cell 1 to 14 plus air)
-    T = Y[:15] 
+    T = y[:15] 
     # last 15 variables: the mass 1 to 15 (cell 1 to 14 plus air)
-    M = Y[15:30]
+    M = y[15:30]
 
-    # radiation release: emissivity * sigma * radiation area * T^4
-    radiation_release = SIGMA*np.power(T, 4)* surface_area_array_rad * emissivity_array
+    radiation_release = SIGMA * np.power(T, 4) * battery_module.radiation_area \
+                        * battery_module.emissivity
+
     # RAD_MATRX(i,j): percentage of energy going to j of the total emitted from i
     # A transpose makes the RAD_MATRIX_T(i,j) percentage of energy going to i of the total energy going from j
     # total energy going into i from other radiation sources (assuming absorpivity = emissvity)
-    radiation_aborption = np.matmul(RAD_PERCENTAGE_MATRIX.transpose(), radiation_release) * emissivity_array
-    # convection heat aborption from air 
-    convection_aborption = CELL_SURFACE_AREA*hm_array*(T[14] - T)
-    negative_conv = np.sum(convection_aborption) * (-1)
-    convection_aborption[14] = negative_conv
+    radiation_aborption = np.matmul(battery_module.rad_matrix.transpose(), radiation_release) \
+                        * battery_module.absorptivity
+
+    # convection heat aborption from air
+    convection_absorption = battery_module.cell_total_area * H_CONV_HT_COEFF * (T[14] - T)
+    negative_conv = np.sum(convection_absorption) * (-1)
+    convection_absorption[14] = negative_conv
+
+    conduction_absorption = thermal_conductivity(T) * battery_module.cell_height * \
+                            battery_module.cell_length * np.matmul(battery_module.cond_matrix, T)
 
     heating_source = np.zeros(15)
     mass_change_rate = np.zeros(15)
-    if init_heating: 
-        heating_source[0] = heating_pad_power
+    if init_heating:
+        heating_source[0] = HEATING_PWR
     else:
+        #cur_ = -1 * gas_venting_rate(TIME_VENTING - vent_time_remaining + t,T)
+        temp_mass_array = -1 * gas_venting_rate(TIME_VENTING - vent_time_remaining + t,T)
         for cur_index in range(14):
-            if vent_time_remaining[cur_index]>0.0 and t<vent_time_remaining[cur_index]:
-                heating_source[cur_index] = exothermic_reaction_release_pwr 
-                mass_change_rate[cur_index] = -1* gas_venting_rate 
+            if vent_time_remaining[cur_index] > 0.0 and t < vent_time_remaining[cur_index]:
+                #heating_source[cur_index] = REACT_RLSE_PWR_W 
+                heating_source[cur_index] = REACT_RLSE_PWR_W
+                #mass_change_rate[cur_index] = [cur_index]
+                mass_change_rate[cur_index] = temp_mass_array[cur_index]
+                #heating_source[cur_index] = -1 * mass_change_rate[cur_index] * 1200 * 1000
 
-    signed_enthalpy_change = specific_heat_p*mass_change_rate*T
-    signed_enthalpy_change[14] = np.sum(specific_heat_p*(-1)*mass_change_rate*(T-T[14]))
+    signed_enthalpy_change = SPECIFIC_HEAT_CP * mass_change_rate * T
+    signed_enthalpy_change[14] = np.sum(SPECIFIC_HEAT_CP* (-1) * mass_change_rate * (T-T[14]))
 
-    Yprime[:15] = (radiation_aborption - radiation_release 
-                   + convection_aborption + heating_source
-                   + signed_enthalpy_change)/ (M*specific_heat_array)
+    y_prime[:15] = (radiation_aborption
+                   - radiation_release
+                   + convection_absorption
+                   + conduction_absorption
+                   + heating_source
+                   + signed_enthalpy_change
+                   )/ (M*SPECIFIC_HEAT_ARRAY)
 
-    Yprime[15:30] = mass_change_rate
+    y_prime[15:30] = mass_change_rate
+    return y_prime
 
-    return Yprime
-
-
-def stop_func(t, Y, vent_time_remaining, init_heating, unfailed_cell_index_list):
-    T = Y[:14]
-    return np.prod(T[unfailed_cell_index_list]<T_IGN)
+def stop_func(t, y, init_heating: bool, battery_module: CellModule, vent_time_remaining):
+    T = y[:14]
+    return np.prod(T[battery_module.unfailed_list]<T_IGN)
 stop_func.terminal = True
 stop_func.direction = -1
 
 def main():
+    init_temp_array = np.ones(15) * CELL_INIT_TEMP
+    init_mass_array = np.ones(15) * CELL_INIT_MASS
     
-    unfail_cell_list = list(range(14))
-    failed_cell_list = []
+    module_padding = 0.03
+    module_length = CELL_WIDTH * 7 + CELL_WIDTH_GAP * 6 + module_padding * 2
+    module_width = CELL_LENGTH * 2 + CELL_LENGTH_CAP + module_padding * 2
+    air_vol = BASE_TO_CEILING_DIST * module_length * module_width \
+              - 14 * CELL_HEIGHT * CELL_HEIGHT * CELL_WIDTH
+    init_mass_array[14] = 101325 * air_vol \
+                          / R_UNIVERSAL / init_temp_array[14] * MOLECULAR_WEIGHT_AIR
+
+    lco_battery_module = CellModule(cell_dim=(CELL_LENGTH, CELL_WIDTH, CELL_HEIGHT),
+                                    cell_dist=(CELL_LENGTH_CAP, CELL_WIDTH_GAP))
     crit_time_stamp = []
 
-    trange = [0,1500]
+    time_range = [0,1500]
     
-    init_Y = np.ones(30)*cell_init_temp
-    init_Y[15:30] = init_mass_array
+    init_y_ = np.ones(30)*CELL_INIT_TEMP
+    init_y_[15:30] = init_mass_array
 
     solution_t = np.array([0])
-    solution_y = init_Y.copy()
+    solution_y = init_y_.copy()
     solution_y = np.reshape(solution_y,(30,1))
 
     time_offset = 0.0
     count = 0
     init_heating = True
     vent_time_remaining = np.zeros(14)
+
     while count <=13:
         print(count)
-        cur_solution = solve_ivp(function0,trange,init_Y,events=stop_func,args=(vent_time_remaining,init_heating,unfail_cell_list))
+        cur_solution = solve_ivp(tr_function,
+                                 time_range,
+                                 init_y_,
+                                 events=stop_func,
+                                 args=(init_heating,lco_battery_module,vent_time_remaining))
         print(cur_solution.y[:,-1])
         assert cur_solution.message == 'A termination event occurred.'
 
         solution_t = np.concatenate((solution_t, cur_solution.t + time_offset))
 
         solution_y = np.concatenate((solution_y, cur_solution.y), axis=1)
-        init_Y = cur_solution.y_events[0].reshape((30,)).copy()
+        init_y_ = cur_solution.y_events[0].reshape((30,)).copy()
 
         cur_elapsed_time = cur_solution.t_events[0][0]
         crit_time_stamp.append(cur_elapsed_time)
         time_offset += cur_elapsed_time
         
-        cur_Y = init_Y.copy()
+        cur_Y = init_y_.copy()
         mask_array = np.ones(30)
-        mask_array[unfail_cell_list] = 0.0
+        mask_array[lco_battery_module.unfailed_list] = 0.0
         temp_roi = ma.masked_array(cur_Y, mask=mask_array,fill_value=0.0)
         failing_cell_index = np.argmax(temp_roi)
         assert temp_roi[failing_cell_index]>=T_IGN
         assert (temp_roi[temp_roi>=T_IGN]).count() == 1
-        unfail_cell_list.remove(failing_cell_index)
-        failed_cell_list.append(failing_cell_index)
-
+        lco_battery_module.update_module(failing_cell_index)
+        print(lco_battery_module.failed_list)
         for index in range(14):
             if vent_time_remaining[index] > 0:
                 vent_time_remaining[index] = max(0, vent_time_remaining[index] - cur_elapsed_time)
             else:
                 if index == failing_cell_index:
-                    vent_time_remaining[index] = time_venting
+                    vent_time_remaining[index] = TIME_VENTING
         
         if init_heating:
-            init_heating = False           
+            init_heating = False   
         
         count +=1
-    print(failed_cell_list)
+
+    print(lco_battery_module.failed_list)
     print(crit_time_stamp)
 main()
