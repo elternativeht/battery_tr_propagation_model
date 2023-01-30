@@ -1,10 +1,10 @@
 '''
 Simulation script file of battery module failure (thermal runaway) propagation.
 '''
-
 import numpy as np
 import numpy.ma as ma
 from scipy.integrate import solve_ivp
+from matplotlib import pyplot as plt
 from auxiliaries import CellModule
 
 # All units are in SI-MKG unless explicitly stated; temperature unit is Kelvin
@@ -190,7 +190,7 @@ def main():
                                  init_y_,
                                  events=stop_func,
                                  args=(init_heating,lco_battery_module,vent_time_remaining))
-        print(cur_solution.y[:,-1])
+        #print(cur_solution.y[:,-1])
         assert cur_solution.message == 'A termination event occurred.'
 
         solution_t = np.concatenate((solution_t, cur_solution.t + time_offset))
@@ -201,7 +201,7 @@ def main():
         cur_elapsed_time = cur_solution.t_events[0][0]
         crit_time_stamp.append(cur_elapsed_time)
         time_offset += cur_elapsed_time
-        
+
         cur_Y = init_y_.copy()
         mask_array = np.ones(30)
         mask_array[lco_battery_module.unfailed_list] = 0.0
@@ -210,19 +210,49 @@ def main():
         assert temp_roi[failing_cell_index]>=T_IGN
         assert (temp_roi[temp_roi>=T_IGN]).count() == 1
         lco_battery_module.update_module(failing_cell_index)
-        print(lco_battery_module.failed_list)
+
         for index in range(14):
             if vent_time_remaining[index] > 0:
                 vent_time_remaining[index] = max(0, vent_time_remaining[index] - cur_elapsed_time)
             else:
                 if index == failing_cell_index:
                     vent_time_remaining[index] = TIME_VENTING
-        
+
         if init_heating:
-            init_heating = False   
-        
+            init_heating = False 
+ 
         count +=1
 
+    cur_solution = solve_ivp(tr_function,
+                    [0,300],
+                    init_y_,
+                    events=stop_func,
+                    args=(init_heating,lco_battery_module,vent_time_remaining))
+    solution_t = np.concatenate((solution_t, cur_solution.t + time_offset))
+    solution_y = np.concatenate((solution_y, cur_solution.y), axis=1)
+
     print(lco_battery_module.failed_list)
-    print(crit_time_stamp)
+    mass_y = solution_y[15:,:]
+    mass_profile = np.sum(mass_y,axis=0)
+    print(mass_profile.shape)
+    fig, axe = plt.subplots(figsize=(10,10))
+    axe.plot(solution_t - crit_time_stamp[0],mass_profile, color='black',linewidth=2)
+    axe.set(xlim=(-100,900),xlabel='elapsed time since first cell went into thermal away [s]',
+            ylabel='total battery module mass [kg]')
+    for each_crit_timestamp in np.cumsum(np.array(crit_time_stamp)):
+        axe.axvline(x=each_crit_timestamp-crit_time_stamp[0],linestyle='dashed')
+    plt.show()
+    fig.savefig('./mass_loss.jpg',dpi=300)
+    with np.printoptions(precision=1, suppress=True):
+        print(np.array(crit_time_stamp))
+
+    fig2, axe2 = plt.subplots(figsize=(10,10))
+    for i in range(14):
+        axe2.plot(solution_t - crit_time_stamp[0],solution_y[i,:],label=f'cell {i+1}')
+    axe2.plot(solution_t - crit_time_stamp[0],solution_y[14,:],label='Air',linestyle='dashed')
+    axe2.set(xlabel='elapsed time since first cell went into thermal runaway [s]',
+             ylabel='temperature [K]')
+    axe2.legend()
+    plt.show()
+    fig2.savefig('./temperature.jpg',dpi=300)
 main()
