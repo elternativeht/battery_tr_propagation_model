@@ -104,9 +104,6 @@ def tr_function(t, y, init_heating: bool, battery_module: CellModule, vent_time_
     radiation_release = SIGMA * np.power(T, 4) * battery_module.radiation_area \
                         * battery_module.emissivity
 
-    # RAD_MATRX(i,j): percentage of energy going to j of the total emitted from i
-    # A transpose makes the RAD_MATRIX_T(i,j) percentage of energy going to i of the total energy going from j
-    # total energy going into i from other radiation sources (assuming absorpivity = emissvity)
     radiation_aborption = np.matmul(battery_module.rad_matrix.transpose(), radiation_release) \
                         * battery_module.absorptivity
 
@@ -156,7 +153,7 @@ stop_func.direction = -1
 def main():
     init_temp_array = np.ones(15) * CELL_INIT_TEMP
     init_mass_array = np.ones(15) * CELL_INIT_MASS
-    
+
     module_padding = 0.03
     module_length = CELL_WIDTH * 7 + CELL_WIDTH_GAP * 6 + module_padding * 2
     module_width = CELL_LENGTH * 2 + CELL_LENGTH_CAP + module_padding * 2
@@ -170,7 +167,7 @@ def main():
     crit_time_stamp = []
 
     time_range = [0,1500]
-    
+
     init_y_ = np.ones(30)*CELL_INIT_TEMP
     init_y_[15:30] = init_mass_array
 
