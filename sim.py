@@ -243,7 +243,7 @@ def main():
     module_width = CELL_LENGTH * 2 + CELL_LENGTH_CAP + module_padding * 2
     air_vol = BASE_TO_CEILING_DIST * module_length * module_width \
               - 14 * CELL_HEIGHT * CELL_HEIGHT * CELL_WIDTH
-    init_mass_array[14] = 101325 * air_vol \
+    init_mass_array[14] = 101325. * air_vol \
                           / R_UNIVERSAL / init_temp_array[14] * MOLECULAR_WEIGHT_AIR
 
     lco_battery_module = CellModule(cell_dim=(CELL_LENGTH, CELL_WIDTH, CELL_HEIGHT),

@@ -9,21 +9,21 @@ np.set_printoptions(precision=3)
 
 ELETRIC_ADJ_DICT = {}
 
-for i in range(14):
-    if i<7:
-        if i == 0:
-            ELETRIC_ADJ_DICT[i] = (1,)
-        elif i == 6:
-            ELETRIC_ADJ_DICT[i] = (5, 13)
+for index_ in range(14):
+    if index_<7:
+        if index_ == 0:
+            ELETRIC_ADJ_DICT[index_] = (1,)
+        elif index_ == 6:
+            ELETRIC_ADJ_DICT[index_] = (5, 13)
         else:
-            ELETRIC_ADJ_DICT[i] = (i-1, i+1)
+            ELETRIC_ADJ_DICT[index_] = (index_-1, index_+1)
     else:
-        if i == 7:
-            ELETRIC_ADJ_DICT[i] = (8,)
-        elif i == 13:
-            ELETRIC_ADJ_DICT[i] = (6, 12)
+        if index_ == 7:
+            ELETRIC_ADJ_DICT[index_] = (8,)
+        elif index_ == 13:
+            ELETRIC_ADJ_DICT[index_] = (6, 12)
         else:
-            ELETRIC_ADJ_DICT[i] =(i-1, i+1)
+            ELETRIC_ADJ_DICT[index_] =(index_-1, index_+1)
 
 ADJACENT_DICT = {}
 for cell_index in range(14):
@@ -119,7 +119,6 @@ class CellModule(object):
     '''
     The class with battery module geometric information.
     '''
-    global ADJACENT_DICT
     def __init__(self, cell_dim: tuple[float], cell_dist: tuple[float]):
         self.cell_length, self.cell_width, self.cell_height = cell_dim
         self.length_gap, self. width_gap = cell_dist
@@ -178,7 +177,7 @@ class CellModule(object):
             for keyword, tuple_val in ADJACENT_DICT[out_cell_id].items():
                 for in_cell_id in tuple_val:
                     if keyword == 'row':
-                       cur_eff_area = self.cell_length * self.cell_height * vf_row
+                        cur_eff_area = self.cell_length * self.cell_height * vf_row
                     elif keyword == 'col':
                         cur_eff_area = self.cell_width * self.cell_height * vf_col
                     elif keyword == 'diag':
@@ -309,3 +308,4 @@ def mock_unittest():
     print(test_module.cond_matrix)
 def mock_unittest_air():
     test_module = CellModule(cell_dim=(0.173,0.045,0.125),cell_dist=(0.08,0.03))
+    print(test_module)
