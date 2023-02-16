@@ -3,6 +3,7 @@ Simulation script file of battery module failure (thermal runaway) propagation.
 '''
 import numpy as np
 import numpy.ma as ma
+import numpy.typing as npt
 from scipy.integrate import solve_ivp
 from matplotlib import pyplot as plt
 from auxiliaries import CellModule
@@ -57,8 +58,11 @@ SPECIFIC_HEAT_ARRAY = np.ones(15)*CELL_MEAN_SPECIFIC_HEAT
 SPECIFIC_HEAT_ARRAY[14] = 5/2 * R_UNIVERSAL / MOLECULAR_WEIGHT_AIR
 
 TIME_VENTING = 7.0
+TIME_LOCAL_COMBUSTION = 20.0
 
-REACT_RLSE_ENG_J = 1000 * 1000 * CELL_INIT_MASS
+PWR_LOCAL_COMBUSTION = 5200.0
+
+REACT_RLSE_ENG_J = 1000 * 1000 * 1.0
 REACT_RLSE_PWR_W = REACT_RLSE_ENG_J / TIME_VENTING
 
 def thermal_conductivity(temp_K):
@@ -95,9 +99,15 @@ def gas_venting_rate(time_s, temp_K):
     cur_mass_rate = 101325 * cur_vol_rate / temp_K[:14] / 8.314 * 29e-3
     return cur_mass_rate
 
-def tr_func_scope(t, y, init_heating: bool, battery_module: CellModule, vent_time_remaining, cell_ind: int):
+def tr_func_scope(t: float,
+                  y: np.ndarray,
+                  init_heating: bool,
+                  battery_module: CellModule,
+                  vent_time_remaining:np.ndarray,
+                  local_heat_time_remaining: np.ndarray,
+                  cell_ind: int):
+    
     T = y[:15] 
-
     M = y[15:30]
 
     radiation_release = SIGMA * np.power(T, 4) * battery_module.radiation_area \
@@ -115,10 +125,12 @@ def tr_func_scope(t, y, init_heating: bool, battery_module: CellModule, vent_tim
         battery_module.cell_length * temp_col * (T - T[cell_ind])
 
     heating_source = np.zeros(15)
+    compt_heating_source = np.zeros(15)
     mass_change_rate = np.zeros(15)
     signed_enthalpy_change = np.zeros(15)
     if init_heating:
-        heating_source[0] = HEATING_PWR
+        heating_source[0] = HEATING_PWR * 0.8
+        heating_source[1] = HEATING_PWR * 0.2
     else:
         vent_gas_mass_array = -1 * gas_venting_rate(TIME_VENTING - vent_time_remaining + t,T)
         for cur_index in range(14):
@@ -130,14 +142,30 @@ def tr_func_scope(t, y, init_heating: bool, battery_module: CellModule, vent_tim
                     vent_gas_mass_array[cur_index] * T[cur_index]
         signed_enthalpy_change[14] = np.sum(SPECIFIC_HEAT_CP* (-1) * vent_gas_mass_array * (T-T[14])[:14])
 
+        for cur_index in range(14):    
+            if local_heat_time_remaining[cur_index] > 0.0 and t < local_heat_time_remaining[cur_index]:
+                compt_heating_source += battery_module.neighbor_matix[cur_index] * PWR_LOCAL_COMBUSTION
+    
     cur_ind_heating_source = heating_source[cell_ind]
+    cur_ind_compt_heating_source = compt_heating_source[cell_ind]
     cur_ind_mass_change_rate = mass_change_rate[cell_ind]
     cur_ind_signed_enthalpy_change = signed_enthalpy_change[cell_ind]
 
-    return radiation_release[cell_ind],radiation_aborption_lst, cur_ind_conv_absp, cur_ind_cond_absp_lst, \
-    cur_ind_heating_source, cur_ind_mass_change_rate, cur_ind_signed_enthalpy_change
+    return (radiation_release[cell_ind],
+           radiation_aborption_lst,
+           cur_ind_conv_absp,
+           cur_ind_cond_absp_lst,
+           cur_ind_heating_source,
+           cur_ind_compt_heating_source,
+           cur_ind_mass_change_rate,
+           cur_ind_signed_enthalpy_change)
 
-def tr_function(t, y, init_heating: bool, battery_module: CellModule, vent_time_remaining):
+def tr_function(t: np.ndarray,
+                y: np.ndarray,
+                init_heating: bool,
+                battery_module: CellModule,
+                vent_time_remaining:np.ndarray,
+                local_heat_time_remaining: np.ndarray):
     y_prime = np.zeros(30)
 
     # first 15 variables: the temperature 1 to 15 (cell 1 to 14 plus air)
@@ -160,11 +188,15 @@ def tr_function(t, y, init_heating: bool, battery_module: CellModule, vent_time_
                             battery_module.cell_length * np.matmul(battery_module.cond_matrix, T)
 
     heating_source = np.zeros(15)
+
+    compt_heating_source = np.zeros(15)
+
     mass_change_rate = np.zeros(15)
     signed_enthalpy_change = np.zeros(15)
     if init_heating:
-        heating_source[0] = HEATING_PWR
-    else:       
+        heating_source[0] = HEATING_PWR * 0.8
+        heating_source[1] = HEATING_PWR * 0.2
+    else:
         vent_gas_mass_array = -1 * gas_venting_rate(TIME_VENTING - vent_time_remaining + t,T)
         for cur_index in range(14):
             if vent_time_remaining[cur_index] > 0.0 and t < vent_time_remaining[cur_index]:
@@ -177,18 +209,27 @@ def tr_function(t, y, init_heating: bool, battery_module: CellModule, vent_time_
                     signed_enthalpy_change[cur_index] = SPECIFIC_HEAT_CP * \
                     vent_gas_mass_array[cur_index] * T[cur_index]
         signed_enthalpy_change[14] = np.sum(SPECIFIC_HEAT_CP* (-1) * vent_gas_mass_array * (T-T[14])[:14])
+        for cur_index in range(14):
+            if local_heat_time_remaining[cur_index] > 0.0 and t < local_heat_time_remaining[cur_index]:
+                compt_heating_source += battery_module.neighbor_matix[cur_index] * PWR_LOCAL_COMBUSTION
 
     y_prime[:15] = (radiation_aborption
                    - radiation_release
                    + convection_absorption
                    + conduction_absorption
                    + heating_source
+                   + compt_heating_source
                    + signed_enthalpy_change
                    )/ (M*SPECIFIC_HEAT_ARRAY)
     y_prime[15:30] = mass_change_rate
     return y_prime
 
-def stop_func(t, y, init_heating: bool, battery_module: CellModule, vent_time_remaining):
+def stop_func(t: np.ndarray,
+              y: np.ndarray,
+              init_heating: bool,
+              battery_module: CellModule,
+              vent_time_remaining:np.ndarray,
+              local_heat_time_remaining: np.ndarray):
     T = y[:14]
     return np.prod(T[battery_module.unfailed_list]<T_IGN)
 stop_func.terminal = True
@@ -223,12 +264,14 @@ def main():
     count = 0
     init_heating = True
     vent_time_remaining = np.zeros(14)
+    local_heat_time_remaining = np.zeros(14)
 
     rad_release_dict = {}
     rad_absp_dict = {}
     conv_absp_dict= {}
     cond_absp_dict = {}
     heat_src_dict = {}
+    compt_heat_src_dict = {}
     enthalpy_dict = {}
 
     for index in range(14):
@@ -237,83 +280,66 @@ def main():
         conv_absp_dict[index] = [0.0]
         cond_absp_dict[index] = [np.zeros(15)]
         heat_src_dict[index] = [0.0]
+        compt_heat_src_dict[index] = [0.0]
         enthalpy_dict[index] = [0.0]
 
-    while count <=13:
+    while count <= 14:
         print(count)
+        cur_time_range = time_range if count < 14 else [0, 500]
         cur_solution = solve_ivp(tr_function,
-                                 time_range,
+                                 cur_time_range,
                                  init_y_,
                                  events=stop_func,
-                                 max_step=0.2,
-                                 args=(init_heating,lco_battery_module,vent_time_remaining))
+                                 max_step=0.5,
+                                 args=(init_heating,lco_battery_module,vent_time_remaining,local_heat_time_remaining))
         for cell_index in range(14):
             for t_step in range(cur_solution.y.shape[1]):
                 cur_t = cur_solution.t[t_step]
                 cur_y = cur_solution.y[:,t_step]
-                cur_scope_ans = tr_func_scope(cur_t, cur_y, init_heating,lco_battery_module,vent_time_remaining,cell_index)
+                cur_scope_ans = tr_func_scope(cur_t, cur_y, init_heating,lco_battery_module,vent_time_remaining,local_heat_time_remaining,cell_index)
                 rad_release_dict[cell_index].append(cur_scope_ans[0])
                 rad_absp_dict[cell_index].append(cur_scope_ans[1])
                 conv_absp_dict[cell_index].append(cur_scope_ans[2])
                 cond_absp_dict[cell_index].append(cur_scope_ans[3])
                 heat_src_dict[cell_index].append(cur_scope_ans[4])
-                enthalpy_dict[cell_index].append(cur_scope_ans[6])
-
-        assert cur_solution.message == 'A termination event occurred.'
-
+                compt_heat_src_dict[cell_index].append(cur_scope_ans[5])
+                enthalpy_dict[cell_index].append(cur_scope_ans[7])
         solution_t = np.concatenate((solution_t, cur_solution.t + time_offset))
-
         solution_y = np.concatenate((solution_y, cur_solution.y), axis=1)
-        init_y_ = cur_solution.y_events[0].reshape((30,)).copy()
+        if count < 14:
+            assert cur_solution.message == 'A termination event occurred.'
+            init_y_ = cur_solution.y_events[0].reshape((30,)).copy()
+            cur_elapsed_time = cur_solution.t_events[0][0]
+            crit_time_stamp.append(cur_elapsed_time)
+            time_offset += cur_elapsed_time
+            cur_Y = init_y_.copy()
+            mask_array = np.ones(30)
+            mask_array[lco_battery_module.unfailed_list] = 0.0
+            temp_roi = ma.masked_array(cur_Y, mask=mask_array,fill_value=0.0)
+            failing_cell_index = np.argmax(temp_roi)
+            assert temp_roi[failing_cell_index]>=T_IGN
+            #print((temp_roi[temp_roi>=T_IGN]).count())
+            #assert (temp_roi[temp_roi>=T_IGN]).count() == 1
+            lco_battery_module.update_module(failing_cell_index)
 
-        cur_elapsed_time = cur_solution.t_events[0][0]
-        crit_time_stamp.append(cur_elapsed_time)
-        time_offset += cur_elapsed_time
-
-        cur_Y = init_y_.copy()
-        mask_array = np.ones(30)
-        mask_array[lco_battery_module.unfailed_list] = 0.0
-        temp_roi = ma.masked_array(cur_Y, mask=mask_array,fill_value=0.0)
-        failing_cell_index = np.argmax(temp_roi)
-        assert temp_roi[failing_cell_index]>=T_IGN
-        assert (temp_roi[temp_roi>=T_IGN]).count() == 1
-        lco_battery_module.update_module(failing_cell_index)
-
-        for index in range(14):
-            if vent_time_remaining[index] > 0:
-                vent_time_remaining[index] = max(0, vent_time_remaining[index] - cur_elapsed_time)
-            else:
-                if index == failing_cell_index:
-                    vent_time_remaining[index] = TIME_VENTING
-
+            for index in range(14):
+                if vent_time_remaining[index] > 0:
+                    vent_time_remaining[index] = max(0, vent_time_remaining[index] - cur_elapsed_time)
+                    local_heat_time_remaining[index] = max(0, local_heat_time_remaining[index] - cur_elapsed_time)
+                else:
+                    if index == failing_cell_index:
+                        vent_time_remaining[index] = TIME_VENTING
+                        local_heat_time_remaining[index] = TIME_LOCAL_COMBUSTION if count < 2 else TIME_LOCAL_COMBUSTION * 0.4
+        else:
+            fail_list = list(map(lambda x:x+1,lco_battery_module.failed_list))
+            print(f'The failing order for the cell within the module is  \
+                {str(fail_list).strip("[").strip("]").replace(", "," -> ")}')
+            mass_y = solution_y[15:,:]
+            mass_profile = np.sum(mass_y,axis=0)
+            print(f'Total time step number is: {mass_profile.shape[0]}')
         if init_heating:
             init_heating = False
         count +=1
-
-    cur_solution = solve_ivp(tr_function,
-                    [0,300],
-                    init_y_,
-                    events=stop_func,
-                    args=(init_heating,lco_battery_module,vent_time_remaining))
-    for cell_index in range(14):
-        for t_step in range(cur_solution.y.shape[1]):
-            cur_t = cur_solution.t[t_step]
-            cur_y = cur_solution.y[:,t_step]
-            cur_scope_ans = tr_func_scope(cur_t, cur_y, init_heating,lco_battery_module,vent_time_remaining,cell_index)
-            rad_release_dict[cell_index].append(cur_scope_ans[0])
-            rad_absp_dict[cell_index].append(cur_scope_ans[1])
-            conv_absp_dict[cell_index].append(cur_scope_ans[2])
-            cond_absp_dict[cell_index].append(cur_scope_ans[3])
-            heat_src_dict[cell_index].append(cur_scope_ans[4])
-            enthalpy_dict[cell_index].append(cur_scope_ans[6])
-    solution_t = np.concatenate((solution_t, cur_solution.t + time_offset))
-    solution_y = np.concatenate((solution_y, cur_solution.y), axis=1)
-
-    print(f'The failing order for the cell within the module is  \
-    {str(lco_battery_module.failed_list).strip("[").strip("]").replace(", "," -> ")}')
-    mass_y = solution_y[15:,:]
-    mass_profile = np.sum(mass_y,axis=0)
-    print(f'Total time step number is: {mass_profile.shape[0]}')
 
     for cell_index in range(14):
         rad_release_dict[cell_index] = np.array(rad_release_dict[cell_index])
@@ -321,86 +347,82 @@ def main():
         conv_absp_dict[cell_index] = np.array(conv_absp_dict[cell_index])
         cond_absp_dict[cell_index] = np.array(cond_absp_dict[cell_index])
         heat_src_dict[cell_index] = np.array(heat_src_dict[cell_index])
+        compt_heat_src_dict[cell_index] = np.array(compt_heat_src_dict[cell_index] )
         enthalpy_dict[cell_index] = np.array(enthalpy_dict[cell_index])
-    if False:
-        fig, axe = plt.subplots(figsize=(10,10))
-        #axe.set(xlim=(200,600))
-        axe.set(xlabel='Time since first cell went into TR [s]',
-                ylabel='Temperature [K]')
-        for ind in range(13):
-            axe.plot(solution_t - crit_time_stamp[0],solution_y[ind,:],label=f'cell {ind+1}')
-        plt.show()
-    if False:
+    
+    ln_temp_lst = []
+    fig_temp, axe_temp = plt.subplots(figsize=(10,10))
+    axe_temp.set(xlabel='Time since first cell went into TR [s]',
+            ylabel='Temperature [K]')
+    for ind in range(14):
+        cur_ln = axe_temp.plot(solution_t - crit_time_stamp[0],solution_y[ind,:],label=f'cell {ind+1}')
+        ln_temp_lst.append(cur_ln)
+    cur_ln = axe_temp.plot(solution_t - crit_time_stamp[0],solution_y[14,:],label='Air temp',linestyle='dashed')
+    ln_temp_lst.append(cur_ln)
+    axe_temp.legend()
+    plt.show()
+    fig_temp.savefig('./all_temperature.jpg',dpi=300)
 
-        ln1 = axe.plot(solution_t - crit_time_stamp[0],solution_y[3,:],label='cell 4')
-        ln2 = axe.plot(solution_t - crit_time_stamp[0],solution_y[14,:],label='Air',linestyle='solid',linewidth=2)
-    if False:
-        axe2 = axe.twinx()
-        axe2.set(ylabel='Heat Transfer Power [W]')
-        #ln3 = axe2.plot(solution_t - crit_time_stamp[0],
-        #                + np.sum(rad_absp_dict[3],axis=1) 
-        #                #- rad_release_dict[3]
-        #                + conv_absp_dict[3]
-        #                + np.sum(cond_absp_dict[3],axis=1)
-        #                - rad_release_dict[3]
-        #                + heat_src_dict[3],
-        #                label='cell 4 heat ransfer',color='red',linestyle='dashed')
-        axe2.axhline(y=0.0,color='black')
+    fig_mass, axe_mass = plt.subplots(figsize=(10,10))
+    axe_mass.plot(solution_t - crit_time_stamp[0],mass_profile, color='black',linewidth=2)
+    axe_mass.set(#xlim=(-100,500),
+                 xlabel='elapsed time since first cell went into thermal away [s]',
+                 ylabel='total battery module mass [kg]')
+    for each_crit_timestamp in np.cumsum(np.array(crit_time_stamp)):
+        axe_mass.axvline(x=each_crit_timestamp-crit_time_stamp[0],linestyle='dashed')
+    plt.show()
+    fig_mass.savefig('./mass_loss.jpg',dpi=300)
+    with np.printoptions(precision=1, suppress=True):
+        print_crit_time_stamp = []
+        for element in crit_time_stamp:
+            print_crit_time_stamp.append("{:.1f}".format(element))
+        print(f"Cell-to-cell TR propagation time is:\n{' -> '.join(print_crit_time_stamp)}")
+    
+    for cell_index in range(14):
+        cur_failing_index = lco_battery_module.failed_list.index(cell_index)
+        cum_sum_crt_time = np.cumsum(np.array(crit_time_stamp))
+        fig_cur_cell, axe_cur_cell = plt.subplots(figsize=(10,10))
+        ln1 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],solution_y[cell_index,:],label=f'cell {cell_index+1}')
+        ln2 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],solution_y[14,:],label='Air',linestyle='solid',linewidth=2)
+        axe_cur_cell.set(xlabel=f'time since cell {cell_index+1} went into TR [s]',
+                          ylabel='Temperature [K]')
+        axe_cur_cell.axvline(x=0.0,color='black',linestyle='dotted')
+        axe_cur_cell2 = axe_cur_cell.twinx()
+        axe_cur_cell2.set(ylabel='Heat Transfer Power [W]')
+        axe_cur_cell2.axhline(y=0.0,color='black')
 
-        #ln3 = axe2.plot(solution_t - crit_time_stamp[0], conv_absp_dict[3],
-        #                label='cell 4 conv',color='red',linestyle='dashed')
-        #ln4 = axe2.plot(solution_t - crit_time_stamp[0], rad_release_dict[3],
-        #                label='cell 4 rad release',linestyle='dashed')
-        #ln5 = axe2.plot(solution_t - crit_time_stamp[0], np.sum(rad_absp_dict[3],axis=1),
-        #                label='cell 4 rad absorption',linestyle='dashed')
-        #ln6 = axe2.plot(solution_t - crit_time_stamp[0], np.sum(cond_absp_dict[3],axis=1),
-        #                label='cell 4 conduction absorption', linestyle='dashed')
-        #ln7 = axe2.plot(solution_t - crit_time_stamp[0], enthalpy_dict[3],
-        #                label='cell 4 energy change due to mass losss', linestyle='dashed')
-        #lns = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln7
+        ln3 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], conv_absp_dict[cell_index],
+                        label=f'cell {cell_index+1} conv',linestyle='dashed')
+        ln4 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], rad_release_dict[cell_index],
+                        label=f'cell {cell_index+1} rad release',linestyle='dashed')
+        ln5 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], np.sum(rad_absp_dict[cell_index],axis=1),
+                        label=f'cell {cell_index+1} rad absorption',linestyle='dashed')
+        ln6 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], np.sum(cond_absp_dict[cell_index],axis=1),
+                        label=f'cell {cell_index+1} conduction absorption', linestyle='dashed')
+        #ln7 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], heat_src_dict[cell_index],
+        #                label=f'cell {cell_index+1} energy change due to heat sources from TR', linestyle='dashed')
+        ln8 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], compt_heat_src_dict[cell_index],
+                        label=f'cell {cell_index+1} energy change due to compartment heat sources', linestyle='dashed')
+        #ln9 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], enthalpy_dict[cell_index],
+        #                label=f'cell {cell_index+1} energy change due to mass losss', linestyle='dashed')
+        lns = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln8 
         #for i in [2,4]:
         #    cur_ln = axe2.plot(solution_t - crit_time_stamp[0], cond_absp_dict[3][:,i],label=f'cell 4 absorption from {i+1} conduction', linestyle='dashed')
         #    lns += cur_ln
         #cur_ln = axe2.plot(solution_t - crit_time_stamp[0], np.sum(rad_absp_dict[3],axis=1),label='cell 4 absorption sum', linestyle='dashed')
         #lns += cur_ln
-        ln3 = axe2.plot(solution_t - crit_time_stamp[0], rad_release_dict[3],
-                        label='cell 4 rad release',linestyle='dashed')
-        lns = ln1 + ln2 + ln3
-        for j in [2,4,9,10,11]:
-            cur_ln = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,j],label=f'cell 4 absorption from {j+1} radation', linestyle='dashed')
-            lns += cur_ln
-        cur_ln2 = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,14],label='cell 4 absorption from air radation', linestyle='dashed')
-        lns += cur_ln2
+        #ln3 = axe2.plot(solution_t - crit_time_stamp[0], rad_release_dict[3],
+        #                label='cell 4 rad release',linestyle='dashed')
+        #lns = ln1 + ln2 + ln3
+        #for j in [2,4,9,10,11]:
+        #    cur_ln = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,j],label=f'cell 4 absorption from {j+1} radation', linestyle='dashed')
+        #    lns += cur_ln
+        #cur_ln2 = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,14],label='cell 4 absorption from air radation', linestyle='dashed')
+        #lns += cur_ln2
         #ln4 = axe2.plot(solution_t - crit_time_stamp[0], cond_absp_dict[])
 
         labs = [l.get_label() for l in lns]
-        axe.legend(lns, labs, loc=0)
+        axe_cur_cell.legend(lns, labs, loc=0)
         plt.show()
-        #axe.set(xlim=(-100,500),xlabel='elapsed time since first cell went into thermal away [s]',
-        #           ylabel='total battery module mass [kg]')
-
-    if True:
-        fig, axe = plt.subplots(figsize=(10,10))
-        axe.plot(solution_t - crit_time_stamp[0],mass_profile, color='black',linewidth=2)
-        axe.set(xlim=(-100,500),xlabel='elapsed time since first cell went into thermal away [s]',
-                ylabel='total battery module mass [kg]')
-        for each_crit_timestamp in np.cumsum(np.array(crit_time_stamp)):
-            axe.axvline(x=each_crit_timestamp-crit_time_stamp[0],linestyle='dashed')
-        plt.show()
-        fig.savefig('./mass_loss.jpg',dpi=300)
-        with np.printoptions(precision=1, suppress=True):
-            print_crit_time_stamp = []
-            for element in crit_time_stamp:
-                print_crit_time_stamp.append("{:.1f}".format(element))
-            print(f"Cell-to-cell TR propagation time is:\n{' -> '.join(print_crit_time_stamp)}")
-
-        fig2, axe2 = plt.subplots(figsize=(10,10))
-        for i in range(14):
-            axe2.plot(solution_t - crit_time_stamp[0],solution_y[i,:],label=f'cell {i+1}')
-        axe2.plot(solution_t - crit_time_stamp[0],solution_y[14,:],label='Air',linestyle='dashed')
-        axe2.set(xlabel='elapsed time since first cell went into thermal runaway [s]',
-                ylabel='temperature [K]')
-        axe2.legend()
-        plt.show()
-        fig2.savefig('./temperature.jpg',dpi=300)
+        fig_cur_cell.savefig(f'./{cell_index+1}-cell-temp-pwr-budget.jpg',dpi=300)
 main()

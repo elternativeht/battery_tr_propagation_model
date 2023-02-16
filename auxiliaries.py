@@ -7,6 +7,24 @@ in his website: http://webserver.dmt.upm.es/~isidoro/tc3/Radiation%20View%20fact
 import numpy as np
 np.set_printoptions(precision=3)
 
+ELETRIC_ADJ_DICT = {}
+
+for i in range(14):
+    if i<7:
+        if i == 0:
+            ELETRIC_ADJ_DICT[i] = (1,)
+        elif i == 6:
+            ELETRIC_ADJ_DICT[i] = (5, 13)
+        else:
+            ELETRIC_ADJ_DICT[i] = (i-1, i+1)
+    else:
+        if i == 7:
+            ELETRIC_ADJ_DICT[i] = (8,)
+        elif i == 13:
+            ELETRIC_ADJ_DICT[i] = (6, 12)
+        else:
+            ELETRIC_ADJ_DICT[i] =(i-1, i+1)
+
 ADJACENT_DICT = {}
 for cell_index in range(14):
     cur_location_dict = {}
@@ -116,9 +134,22 @@ class CellModule(object):
         self.emissivity[14] = 0.8
         self.absorptivity =  self.emissivity.copy()
 
+        self.neighbor_matix = np.zeros((15, 15))
+
         self.rad_matrix = np.zeros((15,15))
 
         self.cond_matrix = np.zeros((15, 15))
+
+        self.eletric_cond_matrix = np.zeros((15,15))
+
+        for cell_id in range(14):
+            for tuple_val in ADJACENT_DICT[cell_id].values():
+                for tgt_cell_id in tuple_val:
+                    self.neighbor_matix[cell_id][tgt_cell_id] = 1.0
+            tuple_var2 =  ELETRIC_ADJ_DICT[cell_id]
+            for tgt_cell_id2 in tuple_var2:
+                self.eletric_cond_matrix[cell_id][tgt_cell_id2] = 1.0
+
 
         vf_row = radvf_calc_2pal(dimension_1=(self.cell_length,self.cell_height),
                                  dimension_2=(self.cell_length,self.cell_height),
@@ -193,8 +224,6 @@ class CellModule(object):
             self.rad_matrix[neighboring_cell_id][failing_cell_id] += cur_delta
             self.rad_matrix[neighboring_cell_id][14] -= cur_delta
 
-
-            
         self.rad_matrix[failing_cell_id][14] -= total_delta
 
 
