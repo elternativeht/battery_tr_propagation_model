@@ -3,7 +3,6 @@ Simulation script file of battery module failure (thermal runaway) propagation.
 '''
 import numpy as np
 import numpy.ma as ma
-import numpy.typing as npt
 from scipy.integrate import solve_ivp
 from matplotlib import pyplot as plt
 from auxiliaries import CellModule
@@ -106,9 +105,9 @@ def tr_func_scope(t: float,
                   vent_time_remaining:np.ndarray,
                   local_heat_time_remaining: np.ndarray,
                   cell_ind: int):
-    
+
     T = y[:15] 
-    M = y[15:30]
+    #M = y[15:30]
 
     radiation_release = SIGMA * np.power(T, 4) * battery_module.radiation_area \
                         * battery_module.emissivity
@@ -391,18 +390,28 @@ def main():
         axe_cur_cell2.set(ylabel='Heat Transfer Power [W]')
         axe_cur_cell2.axhline(y=0.0,color='black')
 
-        ln3 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], conv_absp_dict[cell_index],
-                        label=f'cell {cell_index+1} conv',linestyle='dashed')
-        ln4 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], rad_release_dict[cell_index],
-                        label=f'cell {cell_index+1} rad release',linestyle='dashed')
-        ln5 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], np.sum(rad_absp_dict[cell_index],axis=1),
-                        label=f'cell {cell_index+1} rad absorption',linestyle='dashed')
-        ln6 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], np.sum(cond_absp_dict[cell_index],axis=1),
-                        label=f'cell {cell_index+1} conduction absorption', linestyle='dashed')
+        ln3 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 conv_absp_dict[cell_index],
+                                 label=f'cell {cell_index+1} conv',
+                                 linestyle='dashed')
+        ln4 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 rad_release_dict[cell_index],
+                                 label=f'cell {cell_index+1} rad release',
+                                 linestyle='dashed')
+        ln5 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 np.sum(rad_absp_dict[cell_index],axis=1),
+                                 label=f'cell {cell_index+1} rad absorption',
+                                 linestyle='dashed')
+        ln6 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 np.sum(cond_absp_dict[cell_index],axis=1),
+                                 label=f'cell {cell_index+1} conduction absorption',
+                                 linestyle='dashed')
         #ln7 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], heat_src_dict[cell_index],
         #                label=f'cell {cell_index+1} energy change due to heat sources from TR', linestyle='dashed')
-        ln8 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], compt_heat_src_dict[cell_index],
-                        label=f'cell {cell_index+1} energy change due to compartment heat sources', linestyle='dashed')
+        ln8 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 compt_heat_src_dict[cell_index],
+                                 label=f'cell {cell_index+1} energy change due to compartment heat sources',
+                                 linestyle='dashed')
         #ln9 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], enthalpy_dict[cell_index],
         #                label=f'cell {cell_index+1} energy change due to mass losss', linestyle='dashed')
         lns = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln8 
