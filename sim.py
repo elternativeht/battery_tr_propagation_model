@@ -3,9 +3,11 @@ Simulation script file of battery module failure (thermal runaway) propagation.
 '''
 import numpy as np
 import numpy.ma as ma
-from scipy.integrate import solve_ivp
+from scipy.integrate import solve_ivp, cumtrapz
 from matplotlib import pyplot as plt
 from auxiliaries import CellModule
+
+plt.rcParams.update({'font.size': 11})
 
 # All units are in SI-MKG unless explicitly stated; temperature unit is Kelvin
 
@@ -348,9 +350,9 @@ def main():
         heat_src_dict[cell_index] = np.array(heat_src_dict[cell_index])
         compt_heat_src_dict[cell_index] = np.array(compt_heat_src_dict[cell_index] )
         enthalpy_dict[cell_index] = np.array(enthalpy_dict[cell_index])
-    
+
     ln_temp_lst = []
-    fig_temp, axe_temp = plt.subplots(figsize=(10,10))
+    fig_temp, axe_temp = plt.subplots(figsize=(8,8))
     axe_temp.set(xlabel='Time since first cell went into TR [s]',
             ylabel='Temperature [K]')
     for ind in range(14):
@@ -359,16 +361,18 @@ def main():
     cur_ln = axe_temp.plot(solution_t - crit_time_stamp[0],solution_y[14,:],label='Air temp',linestyle='dashed')
     ln_temp_lst.append(cur_ln)
     axe_temp.legend()
+    plt.tight_layout()
     plt.show()
     fig_temp.savefig('./all_temperature.jpg',dpi=300)
 
-    fig_mass, axe_mass = plt.subplots(figsize=(10,10))
+    fig_mass, axe_mass = plt.subplots(figsize=(8,8))
     axe_mass.plot(solution_t - crit_time_stamp[0],mass_profile, color='black',linewidth=2)
-    axe_mass.set(#xlim=(-100,500),
+    axe_mass.set(xlim=(-100,1000),
                  xlabel='elapsed time since first cell went into thermal away [s]',
                  ylabel='total battery module mass [kg]')
     for each_crit_timestamp in np.cumsum(np.array(crit_time_stamp)):
         axe_mass.axvline(x=each_crit_timestamp-crit_time_stamp[0],linestyle='dashed')
+    plt.tight_layout()
     plt.show()
     fig_mass.savefig('./mass_loss.jpg',dpi=300)
     with np.printoptions(precision=1, suppress=True):
@@ -381,57 +385,121 @@ def main():
         cur_failing_index = lco_battery_module.failed_list.index(cell_index)
         cum_sum_crt_time = np.cumsum(np.array(crit_time_stamp))
         fig_cur_cell, axe_cur_cell = plt.subplots(figsize=(10,10))
-        ln1 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],solution_y[cell_index,:],label=f'cell {cell_index+1}')
-        ln2 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],solution_y[14,:],label='Air',linestyle='solid',linewidth=2)
+        ln1 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                solution_y[cell_index,:],
+                                label=f'cell {cell_index+1} temperature',
+                                linewidth=2)
+        ln2 = axe_cur_cell.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                solution_y[14,:],
+                                label='air temperature',
+                                linestyle='solid',
+                                linewidth=2)
         axe_cur_cell.set(xlabel=f'time since cell {cell_index+1} went into TR [s]',
                           ylabel='Temperature [K]')
-        axe_cur_cell.axvline(x=0.0,color='black',linestyle='dotted')
         axe_cur_cell2 = axe_cur_cell.twinx()
         axe_cur_cell2.set(ylabel='Heat Transfer Power [W]')
         axe_cur_cell2.axhline(y=0.0,color='black')
 
         ln3 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  conv_absp_dict[cell_index],
-                                 label=f'cell {cell_index+1} conv',
+                                 label=f'Cell {cell_index+1} convection',
                                  linestyle='dashed')
         ln4 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  rad_release_dict[cell_index],
-                                 label=f'cell {cell_index+1} rad release',
+                                 label=f'cell {cell_index+1} rad rlse',
                                  linestyle='dashed')
         ln5 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  np.sum(rad_absp_dict[cell_index],axis=1),
-                                 label=f'cell {cell_index+1} rad absorption',
+                                 label=f'cell {cell_index+1} rad absp',
                                  linestyle='dashed')
         ln6 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  np.sum(cond_absp_dict[cell_index],axis=1),
-                                 label=f'cell {cell_index+1} conduction absorption',
+                                 label=f'cell {cell_index+1} cond absp',
                                  linestyle='dashed')
         #ln7 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], heat_src_dict[cell_index],
         #                label=f'cell {cell_index+1} energy change due to heat sources from TR', linestyle='dashed')
         ln8 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  compt_heat_src_dict[cell_index],
-                                 label=f'cell {cell_index+1} energy change due to compartment heat sources',
+                                 label=f'cell {cell_index+1} compt combustion heating src',
                                  linestyle='dashed')
         #ln9 = axe_cur_cell2.plot(solution_t - cum_sum_crt_time[cur_failing_index], enthalpy_dict[cell_index],
         #                label=f'cell {cell_index+1} energy change due to mass losss', linestyle='dashed')
         lns = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln8 
-        #for i in [2,4]:
-        #    cur_ln = axe2.plot(solution_t - crit_time_stamp[0], cond_absp_dict[3][:,i],label=f'cell 4 absorption from {i+1} conduction', linestyle='dashed')
-        #    lns += cur_ln
-        #cur_ln = axe2.plot(solution_t - crit_time_stamp[0], np.sum(rad_absp_dict[3],axis=1),label='cell 4 absorption sum', linestyle='dashed')
-        #lns += cur_ln
-        #ln3 = axe2.plot(solution_t - crit_time_stamp[0], rad_release_dict[3],
-        #                label='cell 4 rad release',linestyle='dashed')
-        #lns = ln1 + ln2 + ln3
-        #for j in [2,4,9,10,11]:
-        #    cur_ln = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,j],label=f'cell 4 absorption from {j+1} radation', linestyle='dashed')
-        #    lns += cur_ln
-        #cur_ln2 = axe2.plot(solution_t - crit_time_stamp[0], rad_absp_dict[3][:,14],label='cell 4 absorption from air radation', linestyle='dashed')
-        #lns += cur_ln2
-        #ln4 = axe2.plot(solution_t - crit_time_stamp[0], cond_absp_dict[])
 
         labs = [l.get_label() for l in lns]
-        axe_cur_cell.legend(lns, labs, loc=0)
+        axe_cur_cell2.legend(lns, labs, loc=0)
+        plt.tight_layout()
         plt.show()
         fig_cur_cell.savefig(f'./{cell_index+1}-cell-temp-pwr-budget.jpg',dpi=300)
+
+        fig_energy, axe_energy = plt.subplots(figsize=(10,10))
+
+        ln11 = axe_energy.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                               solution_y[cell_index,:],
+                               label=f'cell {cell_index+1} temperature')
+        ln12 = axe_energy.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                               solution_y[14,:],
+                               label='air temperature',
+                               linestyle='solid',
+                               linewidth=2)
+        axe_energy.set(xlabel=f'time since cell {cell_index+1} went into TR [s]',
+                          ylabel='Temperature [K]')
+        axe_energy2 = axe_energy.twinx()
+        axe_energy2.set(ylabel='Energy [kJ]')
+        axe_energy2.axhline(y=0.0,color='black')
+
+        conv_energy_flow = cumtrapz(conv_absp_dict[cell_index],
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)
+        net_radiation_energy_flow = cumtrapz(np.sum(rad_absp_dict[cell_index],axis=1)-rad_release_dict[cell_index],
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)         
+        net_conduction_energy_flow = cumtrapz(np.sum(cond_absp_dict[cell_index],axis=1),
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)
+        heating_src_energy_flow = cumtrapz(heat_src_dict[cell_index],
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)
+        compt_src_energy_flow = cumtrapz(compt_heat_src_dict[cell_index],
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)
+        enthalpy_energy_flow = cumtrapz(enthalpy_dict[cell_index],
+                 x=solution_t - cum_sum_crt_time[cur_failing_index], 
+                 initial=0)
+
+        ln13 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 conv_energy_flow/1.e3,
+                                 label=f'Cell {cell_index+1} convection absp',
+                                 linestyle='dashed')
+        ln14 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 net_radiation_energy_flow/1e3,
+                                 label=f'Cell {cell_index+1} net rad absp',
+                                 linestyle='dashed')
+
+        ln15 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 net_conduction_energy_flow/1e3,
+                                 label=f'Cell {cell_index+1} cond absp',
+                                 linestyle='dashed')
+        
+        ln16 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                heating_src_energy_flow/1e3,
+                                label=f'Cell {cell_index+1} TR heat absp',
+                                linestyle='dashed')
+
+        ln17 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                 compt_src_energy_flow/1e3,
+                                 label=f'Cell {cell_index+1} compt combustion absp',
+                                 linestyle='dashed')
+        
+        ln18 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
+                                enthalpy_energy_flow/1e3,
+                                label=f'Cell {cell_index+1} mass loss energy change',
+                                linestyle='dashed')
+        lns_10s = ln11 + ln12 + ln13 + ln14 + ln15 + ln16 + ln17 + ln18 
+
+        labs_10s = [l.get_label() for l in lns_10s]
+        axe_energy2.legend(lns_10s, labs_10s, loc=0)
+        plt.tight_layout()
+        plt.show()
+        fig_energy.savefig(f'./{cell_index+1}-cell-temp-energy-budget.jpg',dpi=300)
 main()
