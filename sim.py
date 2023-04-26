@@ -7,7 +7,7 @@ from scipy.integrate import solve_ivp, cumtrapz
 from matplotlib import pyplot as plt
 from auxiliaries import CellModule
 
-plt.rcParams.update({'font.size': 11})
+plt.rcParams.update({'font.size': 14})
 
 # All units are in SI-MKG unless explicitly stated; temperature unit is Kelvin
 
@@ -469,31 +469,31 @@ def main():
 
         ln13 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  conv_energy_flow/1.e3,
-                                 label=f'Cell {cell_index+1} convection absp',
+                                 label=f'Convection heat inflow',
                                  linestyle='dashed')
         ln14 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  net_radiation_energy_flow/1e3,
-                                 label=f'Cell {cell_index+1} net rad absp',
+                                 label=f'Radiation heat inflow',
                                  linestyle='dashed')
 
         ln15 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  net_conduction_energy_flow/1e3,
-                                 label=f'Cell {cell_index+1} cond absp',
+                                 label=f'Conduction heat inflow',
                                  linestyle='dashed')
         
         ln16 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                 heating_src_energy_flow/1e3,
-                                label=f'Cell {cell_index+1} TR heat absp',
+                                label=f'TR-induced heat source',
                                 linestyle='dashed')
 
         ln17 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                  compt_src_energy_flow/1e3,
-                                 label=f'Cell {cell_index+1} compt combustion absp',
+                                 label=f'Enclosure fire energy inflow',
                                  linestyle='dashed')
         
         ln18 = axe_energy2.plot(solution_t - cum_sum_crt_time[cur_failing_index],
                                 enthalpy_energy_flow/1e3,
-                                label=f'Cell {cell_index+1} mass loss energy change',
+                                label=f'Mass-loss induced energy change',
                                 linestyle='dashed')
         lns_10s = ln11 + ln12 + ln13 + ln14 + ln15 + ln16 + ln17 + ln18 
 
