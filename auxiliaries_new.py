@@ -74,7 +74,7 @@ class Compartment(object):
         self.cell_surface_area = self.length * self.width + self.length * self.height * 2 + self.width * self.height * 2
         center_row_ind = self.ew_spacing + self.length/2 + np.array(np.arange(14)>=7,dtype=int) * (self.length + self.ew_gap)
 
-        center_col_ind = self.ns_spacing + self.length/2 + np.array(np.arange(14) % 7, dtype=int) * (self.width + self.ns_gap)
+        center_col_ind = self.ns_spacing + self.width/2 + np.array(np.arange(14) % 7, dtype=int) * (self.width + self.ns_gap)
 
         self.min_dist = np.zeros((14, 14), dtype=np.float64)
         self.max_dist = np.zeros((14, 14), dtype=np.float64)

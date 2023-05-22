@@ -50,7 +50,7 @@ def create_battery(ax, center_point, width, height, failed=False):
         battery_face_color = 'red'
     else:
         battery_face_color = 'none'
-    return create_rect(ax, width, -height, (xinit, yinit), face_color=battery_face_color)
+    return create_rect(ax, width, -height, (xinit, yinit), edge_color='black',face_color=battery_face_color)
 
 def main1():
 
@@ -93,17 +93,6 @@ def main(debug=True):
     def update_frame(i, time_of_failure, order_failure, debug_mode=debug, time_step=10):
         nonlocal cells
         assert len(time_of_failure) == len(order_failure)
-        if False:
-            count = len(time_of_failure) - 1
-            failed_cell_index = i // 10
-            time_step = i % 10
-            if failed_cell_index < count:
-                cur_time = time_of_failure[failed_cell_index] + time_step / 10 * (time_of_failure[failed_cell_index+1] - time_of_failure[failed_cell_index])
-            else:
-                cur_time = time_of_failure[failed_cell_index]
-        
-        total_elapsed_duration = time_of_failure[-1] + 2 * time_step - time_of_failure[0]
-
         cur_time = time_of_failure[0] + time_step * (i-1)
 
         end_ind = np.argmax(np.array(time_of_failure)>cur_time)
@@ -138,9 +127,6 @@ def main(debug=True):
             cur_r = cur_r * 100
             cur_annulus = Annulus(cells[cell_index], cur_r, 1, angle=0, linewidth=3, edgecolor='blue', facecolor='blue', alpha=0.5)
             ax.add_artist(cur_annulus)
-            print(cell_index)
-            print(cur_elapsed_time)
-            print(cur_r)
             cur_annulus.set_clip_path(clip_path)
     test_time_failure = [1800, 1900, 2400, 2460]
     test_order_failure = [2, 1, 3,6]
@@ -164,4 +150,5 @@ def main(debug=True):
     plt.show()
     exit(0)
 
-main()
+if __name__ == '__main__':
+    main()
