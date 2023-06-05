@@ -8,8 +8,13 @@ from matplotlib.path import Path
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 
-
 def axe_axis_linestyle_set(axe):
+    '''
+    Functions to set the dash line pattern for the given axe; 
+    used for the animation of the flames
+
+    Parameters: axe: Matplotlib axe class object
+    '''
     dash_pattern = (10, 5)
     axe.spines['left'].set_linestyle((0, dash_pattern))
     axe.spines['bottom'].set_linestyle((0, dash_pattern))
@@ -17,6 +22,20 @@ def axe_axis_linestyle_set(axe):
     axe.spines['top'].set_linestyle((0, dash_pattern))
 
 def create_rect(ax, width, height,origin=(0,0),edge_color='black',face_color='none'):
+    '''
+    create a rectangle object in the animation indicating battery cell
+    Parameters:
+    - ax: Matplotlib axe object
+    - width: the battery width
+    - height: the battery length
+    - origin: a two-element tuple indicating the location where the origin (starting corner) of
+    rectangle; default to be (0, 0)
+    - edge_color: the color of the battery edge(side); default to be 'black' string
+    - face_color: the color of the battery face; default to be 'none' (indicating transparent)
+
+    returns:
+    rect: the `Rectangle` object
+    '''
     rect = Rectangle(origin,
                          width,
                          height,
@@ -28,6 +47,19 @@ def create_rect(ax, width, height,origin=(0,0),edge_color='black',face_color='no
     return rect
 
 def create_battery(ax, center_point, width, height, failed=False):
+    '''
+    Wrapping function for creating a battery shape object in a plot.
+
+    Parameters:
+    - ax: Matplotlib axe object on which the plot is based
+    - center_point: two-element tuple; containing the battery center point (x, y)
+    - width: `float` variable; battery width
+    - height: `float` variable; battery length
+    - failed: `boolean`; whether the cell is failed
+
+    Returns:
+    a `Rectangle` object created by previous `create_rect()` function.
+    '''
     xinit = center_point[0] - W/2
     yinit = center_point[1] + L/2
     if failed:
@@ -36,15 +68,14 @@ def create_battery(ax, center_point, width, height, failed=False):
         battery_face_color = 'none'
     return create_rect(ax, width, -height, (xinit, yinit), edge_color='black',face_color=battery_face_color)
 
-# Constants
-SIGMA = 5.67e-8
-R_CONST = 8.314
+# Physical Constants
+# NOT TO BE PARAMETERIZED
+SIGMA = 5.67e-8 # Stefan-Boltzmann constant
+R_CONST = 8.314 # Universal gas constant
 T_STD = 273.15
 P_STD = 101325.
-
-HEAT_FLUX_FLAME_RATE = 3.e4 # W/(m2)
 AIR_MOLE_WEIGHT = 29e-3
-INIT_HEATING_PWR = 600.0
+# air conductivity read in and interpolation
 AIR_THERMAL_CONDUCTIVITY_TEMP, AIR_THERMAL_CONDUCTIVITY_K = \
 np.genfromtxt('air_conductivity.csv',delimiter=',',skip_header=1,unpack=True)
 AIR_THERMAL_CONDUCTIVITY_TEMP += 273.15
@@ -54,17 +85,13 @@ AIR_THERMAL_CONDUCTIVITY_INTERP = interp1d(AIR_THERMAL_CONDUCTIVITY_TEMP,
                                               bounds_error=False, 
                                               fill_value=(AIR_THERMAL_CONDUCTIVITY_K[0],
                                                           AIR_THERMAL_CONDUCTIVITY_K[-1]))
+# air regarded as ideal gas
 AIR_SPECIFIC_HEAT_CP = 7 / 2 * R_CONST / AIR_MOLE_WEIGHT
+# battery particle specific heat treated as the same as air
 SOLID_SPECIFIC_HEAT_CP = AIR_SPECIFIC_HEAT_CP
 
-ALPHA = 0.5 # power coefficient; assume flame front velocity v_f proportional to (A)^alpha
-V_F0 = 2e-3 # flame front initial velocity in meters per second (m/s)
-T_B = 110.0 # burning time in seconds
-THRESHOLD_TEMP = 180.0 + 273.15 # threshold temperature for battery going into TR
-CELL_CP = 1100 # specific heat of cell in Joules/(kg * K)
-T_0 = 300.0 # initial temperature of cell
-MASS_0 = 2.01 
-BATTERY_TR_RELEASE_PER_MASS = 1e6 # Joules/(kg)
+INIT_HEATING_PWR = 600.0 # initial external heater heating power 
+
 
 
 # Geometry
@@ -72,7 +99,7 @@ L = 0.173  # m
 W = 0.045  # m
 H = 0.125  # m
 
-PADDING = 1e-2
+PADDING = 1e-2 # plotting padding; the spacing outside of the axis
 
 NORTH_SOUTH_SPACING = 1e-2
 NORTH_SOUTH_GAP = 1.5e-2
@@ -83,6 +110,9 @@ CONTAINER_WIDTH = L * 2 +  EAST_WEST_SPACING * 2 + EAST_WEST_GAP * 1
 
 CONTAINER_HEIGHT = 15.0e-2
 
+# TO-DO: note that the geometry data points are already in the `Compartment` class. Geometry data is 
+# included here because of the need to be called in functions. Need to eliminate the repeating definition of geometric
+# data.
 
 # Interpolate the gas release rate
 TIME_VALUES = np.array([0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0])
@@ -94,7 +124,29 @@ GAS_RELEASE_RATE_INTERP = interp1d(TIME_VALUES, GAS_RELEASE_RATE_KG_PER_SEC, bou
 SOLID_RELEASE_RATE_KG_PER_SEC = GAS_RELEASE_RATE_KG_PER_SEC * 2.140
 SOLID_RELEASE_RATE_INTERP = interp1d(TIME_VALUES, SOLID_RELEASE_RATE_KG_PER_SEC, bounds_error=False, fill_value=0.0)
 
+# Parameters potentially ready for tuning
+HEAT_FLUX_FLAME_RATE = 3.e4 # flame heat transfer flux for polycarbonate container flames [W/(m2)]
+ALPHA = 0.5 # power coefficient; assume flame front velocity v_f proportional to (A)^alpha
+V_F0 = 2e-3 # flame front initial velocity in meters per second (m/s)
+T_B = 110.0 # burning time in seconds
+THRESHOLD_TEMP = 180.0 + 273.15 # threshold temperature for battery going into TR
+CELL_CP = 1100 # specific heat of cell in Joules/(kg * K)
+T_0 = 300.0 # initial temperature of cell
+MASS_0 = 2.01 # initial battery cell mass in kg
+BATTERY_TR_RELEASE_PER_MASS = 1e6 # Joules/(kg)
+
 def flame_radius_front(time_elapsed, alpha=ALPHA, initial_radius=W/2, initial_flame_speed=V_F0):
+    '''
+    Function to calculate the flame front radius after propagation
+
+    Parameters:
+    - `time_elapsed`: the time elapsed from the cell thermal runaway onset [seconds]
+    - `alpha`: the power coefficient [unitless]
+    - `initial_radius`: initial flame front radius at the thermal runaway onset [m]
+    - `initial_flame_speed`: initial flame front propagation speed [m/s]
+
+    Returns a `float` containing current flame front radius, with circle center the battery cell center
+    '''
     if alpha == 0.5:
         return initial_radius * np.exp(initial_flame_speed * time_elapsed / initial_radius)
     else:
@@ -102,19 +154,38 @@ def flame_radius_front(time_elapsed, alpha=ALPHA, initial_radius=W/2, initial_fl
     
 
 def dr_back_dt(timed_elapsed, rb, tau, alpha, initial_radius, initial_flame_speed):
+    '''
+    Right hand side of the ODE function that defines the flame back propagation rate with time.
+    ODE function is to be solved numerically below using `solve_ivp` to obtain the flame back
+    radius.
+
+    Parameters:
+    - `time_elapsed`: the time elapsed from the cell thermal runaway onset [seconds]
+    - `rb`: current flame back radius [m]
+    - `tau`: burnout time (the time it takes for the flame to quench) [s]
+    - `alpha`: the power coefficient [unitless]
+    - `initial_radius`: initial flame back radius at the thermal runaway onset [m]
+    - `initial_flame_speed`: initial flame back propagation speed [m/s]
+
+    Returns: a `float` containing information of the flame back radius propagation rate [m/s]
+    '''
     rf = flame_radius_front(timed_elapsed, alpha, initial_radius, initial_flame_speed)
     return (rf - rb)/tau
 
+# Calculate the interpolation look-up table between elapsed time and instantaneous flame front radius
+# time array
 TIME_FLAME_ELAPSED = np.arange(0,5001,1)
-
-#RF_FLAME_M = flame_radius_front(TIME_FLAME_ELAPSED,ALPHA, initial_radius=W, initial_flame_speed=V_F0)
-
+# flame front radius array
+RF_FLAME_M = flame_radius_front(TIME_FLAME_ELAPSED,ALPHA, initial_radius=W, initial_flame_speed=V_F0)
+# flame back radius array; solved numerically
 RB_FLAME_M = solve_ivp(fun=dr_back_dt, t_span=[0,5000], y0=[0.0], 
                        t_eval=np.arange(0,5001,1),method='BDF',
                        max_step=0.5,
                        #dense_output=True, 
                        args=(T_B, ALPHA, W, V_F0)).y
 RB_FLAME_M = np.reshape(RB_FLAME_M, (5001,))
+
+# screen out the unrealistic numbers
 index_max = np.where(RB_FLAME_M<0.5)[0][-1]
 
 RB_FLAME_INTERP = interp1d(TIME_FLAME_ELAPSED[:index_max+1],RB_FLAME_M[:index_max+1],
@@ -122,6 +193,24 @@ RB_FLAME_INTERP = interp1d(TIME_FLAME_ELAPSED[:index_max+1],RB_FLAME_M[:index_ma
                            fill_value=(0.0,0.5))
 
 def flames_effect_ratio(min_dist, max_dist,r_f_front, r_f_back):
+    '''
+    Function to calculate the percentage of the surface area exposed to flames.
+    Flame front traverses the entire cell. The area exposed to the flame increases linearly
+    with the flame front traversal distance (r_f_front - min_dist)/(max_dist - min_dist). 
+    The area exposed to the flame decreases linearly with the flame back traversal distance
+    (0.0, r_f_back - min_dist)/(max_dist - min_dist).
+
+    Parameters:
+    -`min_dist`: the minimal distance from center of the cell which initiates the flame to
+     the current cell.
+    -`max_dist`: the maximal distance from center of the cell which initiates the flame to 
+     the current cell
+    - `r_f_front`: current flame front radius of the flame of interest
+    - `r_b_front`: current flame back radius of the flame of interest
+
+    Returns: the coefficient representing the ratio of the entire cell surface area exposed
+    to the flame
+    '''
     front_effect = min(1.0, max(0.0, r_f_front - min_dist))/(max_dist - min_dist)
     back_effect = min(1.0, max(0.0, r_f_back - min_dist))/(max_dist - min_dist)
     return front_effect - back_effect
