@@ -1,0 +1,9 @@
+,gas composition,volumetric ratio,molecular mass [g],lower heating value [kJ/g]
+0,H2,0.306,2.0,121.0
+1,CO2,0.299,44.0,0.0
+2,CO,0.213,28.0,10.112
+3,CH4,0.072,16.0,50.009
+4,C2H4,0.056,28.0,47.195
+5,C3H8,0.02,44.0,46.35
+6,C2H6,0.018,30.0,47.8
+7,others (treated as CO2),0.016,44.0,0.0

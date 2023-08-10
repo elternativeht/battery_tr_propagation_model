@@ -215,24 +215,27 @@ def flames_effect_ratio(min_dist, max_dist,r_f_front, r_f_back):
     back_effect = min(1.0, max(0.0, r_f_back - min_dist))/(max_dist - min_dist)
     return front_effect - back_effect
 
-def rate_calculate_fun(t, y, compartment: Compartment):
+def rate_calculate_fun(t, y, compartment: Compartment, pre_heating: bool = False):
     temp = y[:14]
     mass_rate = np.zeros(14)
 
     for i in range(14):
         if temp[i] >= THRESHOLD_TEMP and compartment.status[i]==1:
             compartment.update_compartment(t, i)
-            if i in compartment.preheat_list:
-                compartment.preheat_list.remove(i)
-        if (temp[i]>273.15 + 130.0) and (compartment.preheat_status[i]==0):
-            if i > 0:
-                compartment.update_preheat(t, i)
+            if pre_heating:
+                if i in compartment.preheat_list:
+                    compartment.preheat_list.remove(i)
+                    if (temp[i]>273.15 + 130.0) and (compartment.preheat_status[i]==0):
+                        if i > 0:
+                            compartment.update_preheat(t, i)
+    
     cell_tr_release_rate = np.zeros((14,),dtype=float)
     cell_outflow_enthalpy_rate = np.zeros((14,),dtype=float)
     cell_flame_heat_rate = np.zeros((14, ),dtype=float)
     cell_radiation_rate = np.zeros((14, ),dtype=float)
     cell_conduction_rate = np.zeros((14,),dtype=float)
 
+    # current assumption on the cell heating pad before the first cell went into TR
     if len(compartment.failure_order) == 0:
         cell_conduction_rate[0] = 1/12.0 * 0.8 * MASS_0 * CELL_CP
         cell_conduction_rate[1] = 1/12.0 * 0.2 * MASS_0 * CELL_CP
