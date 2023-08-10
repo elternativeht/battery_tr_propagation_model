@@ -216,6 +216,17 @@ def flames_effect_ratio(min_dist, max_dist,r_f_front, r_f_back):
     return front_effect - back_effect
 
 def rate_calculate_fun(t, y, compartment: Compartment):
+    '''
+    The function calculating the heat transfer rate given current time and states
+
+    Parameters:
+    - t: time variables; absolute time since the start of simulation [s]
+    - y: a one-dim `np.ndarray` with shape (28,) storing current state
+
+    Returns:
+    - calc_heat_power: a two-dim `np.ndarray` array with shape of (5, 14) storing the 
+    - mass_rate
+    '''
     temp = y[:14]
     mass_rate = np.zeros(14)
 
